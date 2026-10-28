@@ -1,11 +1,16 @@
 #include "BluetoothSerial.h"
 #include "Preferences.h"
+#include "HardwareSerial.h"
 
 #define SCAN 0
 #define LOCKER_COUNT 5
-#define NEXTION_TX 17
-#define NEXTION_RX 16
-#define NEXTION_BAUD 115200
+#define NEXTION_BAUD 9600
+#define NEXTION_RX 21
+#define NEXTION_TX 22
+#define BUZZER_PIN 32
+#define RELEASE_ALL_BUTTON 33
+
+HardwareSerial nextionSerial(2);
 
 #define HOST_SHIELD_SCK 14
 #define HOST_SHIELD_MISO 25
@@ -73,11 +78,11 @@ uint8_t stateMask(){
 }
 
 void sendToNextion(const char *msg){
-  Serial1.print(msg);
-  Serial1.write(0xFF);
-  Serial1.write(0xFF);
-  Serial1.write(0xFF);
-  Serial1.flush();
+  nextionSerial.print(msg);
+  nextionSerial.write(0xFF);
+  nextionSerial.write(0xFF);
+  nextionSerial.write(0xFF);
+  nextionSerial.flush();
 }
 
 void loadState(){
@@ -122,6 +127,12 @@ String buildQrPayload(){
   return "L=" + String(currentSession.locker)
        + "&I=" + String(currentSession.operationId)
        + "&T=" + token;
+}
+
+void beep(uint16_t ms){
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(ms);
+  digitalWrite(BUZZER_PIN, LOW);
 }
 
 void printQrCode(const String &data){
@@ -281,8 +292,29 @@ void freeLocker(uint8_t locker){
   sendToNextion(stateMsg);
 }
 
+void freeAllLockers(){
+  bool changed = false;
+
+  for (uint8_t i = 0; i < LOCKER_COUNT; i++){
+    if (lockerState[i] == OCCUPIED){
+      lockerState[i] = FREE;
+
+      char key[8];
+      lockerKey(key, i);
+      prefs.putBool(key, false);
+      changed = true;
+    }
+  }
+
+  if (changed){
+    Serial.println("Todos los lockers fueron liberados");
+    sendToNextion("LOCKER_STATE=0");
+  }
+}
+
 void handleNextionCommand(const char *cmd){
   Serial.printf("[NEXTION] %s\n", cmd);
+  beep(30);
 
   if (strcmp(cmd, "ready") == 0){
     char stateMsg[20];
@@ -291,8 +323,17 @@ void handleNextionCommand(const char *cmd){
     return;
   }
 
-  if (strncmp(cmd, "LOCKER=", 7) == 0){
-    openLocker((uint8_t)atoi(cmd + 7), "NEXTION");
+  if (strncmp(cmd, "LOCKER:", 7) == 0){
+    uint8_t lockerNum = 0;
+    const char *p = cmd + 7;
+    if (*p >= '1' && *p <= '9'){
+      lockerNum = (uint8_t)atoi(p);
+    }else if ((uint8_t)(*p) >= 1 && (uint8_t)(*p) <= LOCKER_COUNT){
+      lockerNum = (uint8_t)(*p);
+    }else{
+      lockerNum = (uint8_t)atoi(p);
+    }
+    openLocker(lockerNum, "NEXTION");
     return;
   }
 
@@ -303,15 +344,29 @@ void handleNextionCommand(const char *cmd){
 }
 
 void readNextion(){
-  while (Serial1.available()){
-    char c = Serial1.read();
+  while (nextionSerial.available()){
+    char c = nextionSerial.read();
 
     if (c == 0xFF){
       if (nextionLen > 0){
+        while (nextionLen > 0 && (nextionLine[nextionLen - 1] == '\r' || nextionLine[nextionLen - 1] == '\n')){
+          nextionLen--;
+        }
         nextionLine[nextionLen] = '\0';
-        handleNextionCommand(nextionLine);
+        if (nextionLen > 0){
+          handleNextionCommand(nextionLine);
+        }
       }
       nextionLen = 0;
+    }
+    else if (c == '\r' || c == '\n'){
+      if (nextionLen > 0){
+        nextionLine[nextionLen] = '\0';
+        if (nextionLen > 0){
+          handleNextionCommand(nextionLine);
+        }
+        nextionLen = 0;
+      }
     }
     else if (nextionLen < sizeof(nextionLine) - 1){
       nextionLine[nextionLen++] = c;
@@ -353,17 +408,14 @@ void setup(){
   Serial.begin(115200);
   delay(1000);
 
-  Serial1.begin(NEXTION_BAUD, SERIAL_8N1, NEXTION_RX, NEXTION_TX);
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+  pinMode(RELEASE_ALL_BUTTON, INPUT_PULLUP);
+
+  nextionSerial.begin(NEXTION_BAUD, SERIAL_8N1, NEXTION_RX, NEXTION_TX);
 
   prefs.begin("locker", false);
   loadState();
-
-  for (int i = 0; i < LOCKER_COUNT; i++){
-    pinMode(lockerButtons[i].pin, INPUT_PULLUP);
-    lastReading[i] = HIGH;
-    lastDebounce[i] = millis();
-    buttonLatched[i] = false;
-  }
 
   Serial.println();
   Serial.println("===========================");
@@ -393,7 +445,6 @@ void setup(){
 
   Serial.println("Bluetooth Iniciado");
   Serial.println("Conectado por MAC address");
-  Serial.println("Presiona el boton para imprimir");
   delay(2000);
 
   if (SerialBT.connect(printerMAC, 0, ESP_SPP_SEC_NONE)){
@@ -411,32 +462,27 @@ void loop(){
   readSerialCommands();
   readNextion();
 
+  static bool releaseButtonWasPressed = false;
+  bool releaseButtonPressed = digitalRead(RELEASE_ALL_BUTTON) == LOW;
+
+  if (releaseButtonPressed && !releaseButtonWasPressed){
+    delay(30);
+    if (digitalRead(RELEASE_ALL_BUTTON) == LOW){
+      freeAllLockers();
+    }
+  }
+
+  releaseButtonWasPressed = releaseButtonPressed;
+
+  /*
+  static unsigned long lastBtRetry = 0;
+
   if (!SerialBT.connected()){
-    Serial.println("Bluetooth Desconectado, reintentando...");
-    SerialBT.connect(printerMAC, 0, ESP_SPP_SEC_NONE);
-    delay(3000);
-    return;
-  }
-
-  for (int i = 0; i < LOCKER_COUNT; i++){
-    int reading = digitalRead(lockerButtons[i].pin);
-
-    if (reading != lastReading[i]){
-      lastDebounce[i] = millis();
-      lastReading[i] = reading;
-    }
-
-    if ((millis() - lastDebounce[i]) > 50){
-      if (reading == LOW && !buttonLatched[i]){
-        buttonLatched[i] = true;
-        openLocker(lockerButtons[i].locker, "BOTON");
-        Serial.println("Ticket Enviado...");
-      }
-      else if (reading == HIGH){
-        buttonLatched[i] = false;
-      }
+    if (millis() - lastBtRetry > 8000){
+      lastBtRetry = millis();
+      Serial.println("Bluetooth Desconectado, reintentando...");
+      SerialBT.connect(printerMAC, 0, ESP_SPP_SEC_NONE);
     }
   }
-
-  delay(50);
+  */
 }
