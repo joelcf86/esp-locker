@@ -22,7 +22,7 @@
  *   - El monitor/upload va por el CH343 del puerto UART.
  *
  * Pines:
- *   Nextion TX/RX 21/22 @9600, buzzer 14, liberar todo 47.
+ *   Nextion TX/RX 17/18 @9600, buzzer 14, liberar todo 47.
  *   Actuadores de locker 1..5: GPIO1,2,4,5,6.
  *   GPIO19/20 quedan para USB D-/D+ (host OTG): no usar como GPIO.
  */
@@ -48,8 +48,8 @@ extern "C" void USBHostBoardInit(void);
 
 #define LOCKER_COUNT 5
 #define NEXTION_BAUD 9600
-#define NEXTION_RX 21
-#define NEXTION_TX 22
+#define NEXTION_RX 18
+#define NEXTION_TX 17
 #define BUZZER_PIN 14
 #define RELEASE_ALL_BUTTON 47
 

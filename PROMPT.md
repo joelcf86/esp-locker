@@ -26,7 +26,7 @@ El ESP32-S3 no tiene Bluetooth Classic. La impresora Bluetooth y
 ## Pinout Definitivo
 
 ```text
-Nextion TX/RX       GPIO21 / GPIO22       UART2 @ 9600
+Nextion TX/RX       GPIO17 / GPIO18       UART2 @ 9600
 Buzzer activo       GPIO14                salida de control
 Liberar todos       GPIO47                boton a GND, INPUT_PULLUP
 
