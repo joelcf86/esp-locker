@@ -118,6 +118,7 @@ static QueueHandle_t s_scanQueue = NULL;
 static SemaphoreHandle_t s_printerSem = NULL;
 static SemaphoreHandle_t s_scannerSem = NULL;
 static PrintJob s_printer = {};
+static volatile bool s_scanAuthorized = false;
 
 static char s_scanLine[64];
 static uint8_t s_scanLen = 0;
@@ -506,6 +507,11 @@ static bool parseLockerPayload(const char *payload, int *num){
 }
 
 void handleScanPayload(const char *payload){
+  if (!s_scanAuthorized){
+    Serial.printf("[SCAN] ignorado, modo escaneo desactivado: %s\n", payload);
+    return;
+  }
+
   uint32_t now = millis();
   if (strcmp(payload, lastScanPayload) == 0 && (now - lastScanMs) < SCAN_DEDUP_MS){
     return;
@@ -525,9 +531,13 @@ void handleScanPayload(const char *payload){
 
   if (lockerState[idx] == FREE){
     Serial.printf("Locker %d ya estaba libre\n", locker);
+    s_scanAuthorized = false;
+    sendToNextion("SCAN_OK=OFF");
     return;
   }
 
+  s_scanAuthorized = false;
+  sendToNextion("SCAN_OK=OFF");
   beep();
   freeLocker((uint8_t)locker);
 }
@@ -576,6 +586,26 @@ void handleNextionCommand(const char *cmd){
     char stateMsg[20];
     snprintf(stateMsg, sizeof(stateMsg), "LOCKER_STATE=%d", stateMask());
     sendToNextion(stateMsg);
+    return;
+  }
+
+  if (strncmp(cmd, "SCAN:", 5) == 0 || strncmp(cmd, "SCAN=", 5) == 0){
+    const char *mode = cmd + 5;
+    if (strcmp(mode, "ON") == 0){
+      s_scanAuthorized = true;
+      s_scanLen = 0;
+      if (s_scanQueue != NULL) xQueueReset(s_scanQueue);
+      Serial.println("Modo escaneo ACTIVO");
+      sendToNextion("SCAN_OK=ON");
+    } else if (strcmp(mode, "OFF") == 0){
+      s_scanAuthorized = false;
+      s_scanLen = 0;
+      if (s_scanQueue != NULL) xQueueReset(s_scanQueue);
+      Serial.println("Modo escaneo DESACTIVADO");
+      sendToNextion("SCAN_OK=OFF");
+    } else {
+      Serial.printf("Modo escaneo no reconocido: %s\n", mode);
+    }
     return;
   }
 

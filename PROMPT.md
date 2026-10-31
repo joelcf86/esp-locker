@@ -141,6 +141,8 @@ LOCKER:<n>     seleccionar y ocupar locker n
 FREE=<n>       liberar locker n manualmente
 LANG:ES        imprimir siguientes tickets en espanol
 LANG:EN        imprimir siguientes tickets en ingles
+SCAN:ON        permitir una lectura para liberar locker
+SCAN:OFF       cancelar el modo de retiro
 BEEP           activar buzzer
 ready          solicitar sincronizacion de estados
 ```
@@ -160,6 +162,16 @@ LOCKER:5
 ```
 
 El idioma se guarda en NVS y por defecto es espanol.
+
+Para retirar pertenencias, la HMI debe enviar primero:
+
+```text
+SCAN:ON
+```
+
+El firmware acepta un QR valido solo mientras el modo de escaneo esta activo.
+Despues de liberar un locker, cambia automaticamente a `SCAN:OFF`. La HMI puede
+cancelar manualmente con `SCAN:OFF`. Tambien se aceptan `SCAN=ON` y `SCAN=OFF`.
 
 ### ESP32 hacia Nextion
 
