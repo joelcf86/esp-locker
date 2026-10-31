@@ -56,6 +56,7 @@ extern "C" void USBHostBoardInit(void);
 #define MAX_OPEN_DEVICES 8
 #define TRANSFER_TIMEOUT 5000
 #define SCAN_DEDUP_MS     2000
+#define ACTUATOR_PULSE_MS 2000
 
 HardwareSerial nextionSerial(2);
 
@@ -224,6 +225,17 @@ void beep(){
   digitalWrite(BUZZER_PIN, LOW);
 }
 
+void pulseActuator(uint8_t locker){
+  if (locker < 1 || locker > LOCKER_COUNT) return;
+
+  uint8_t pin = actuatorPins[locker - 1];
+  Serial.printf("Actuador locker %d ON (%u ms)\n", locker, ACTUATOR_PULSE_MS);
+  digitalWrite(pin, HIGH);
+  delay(ACTUATOR_PULSE_MS);
+  digitalWrite(pin, LOW);
+  Serial.printf("Actuador locker %d OFF\n", locker);
+}
+
 /* ------------------------------------------------------------------ */
 /* Buffer ESC/POS + QR                                                */
 /* ------------------------------------------------------------------ */
@@ -385,6 +397,7 @@ bool openLocker(uint8_t locker, const char *origin){
   Serial.printf("Locker %d abierto (%s)\n", locker, origin);
 
   generateToken(locker);
+  pulseActuator(locker);
   printTicket();
 
   char msg[16];
@@ -402,6 +415,12 @@ void freeLocker(uint8_t locker){
   if (locker < 1 || locker > LOCKER_COUNT) return;
 
   uint8_t idx = locker - 1;
+  if (lockerState[idx] == FREE){
+    Serial.printf("Locker %d ya estaba libre\n", locker);
+    return;
+  }
+
+  pulseActuator(locker);
   lockerState[idx] = FREE;
   char key[8];
   lockerKey(key, idx);

@@ -43,6 +43,10 @@ USB OTG GND         GND comun
 ```
 
 Los cinco actuadores son **salidas**, no botones. Cada GPIO va solamente a la
+entrada de control de su etapa de potencia. La etapa necesita fuente externa,
+GND comun y proteccion adecuada; para bobinas se requiere diodo flyback.
+El firmware usa salida activa en HIGH y un pulso de 2 segundos al guardar y al
+liberar. Si la etapa es activa en LOW, hay que invertir `pulseActuator()`.
 
 Pines reservados y que no deben usarse para GPIO:
 
@@ -106,9 +110,8 @@ lang        idioma del ticket: 0=espanol, 1=ingles
 duplicados. Si la impresion falla, el locker queda ocupado y debe liberarse
 manualmente.
 
-El firmware actual inicializa los cinco GPIO de actuadores en LOW, pero aun no
-implementa el pulso fisico de apertura. La integracion pendiente es activar el
-GPIO correcto al liberar y luego marcar el locker como libre.
+Los cinco GPIO de actuadores se inicializan en LOW. `pulseActuator()` activa el
+GPIO correcto durante 2 segundos al ocupar/guardar y al liberar el locker.
 
 ## Flujo Actual
 
@@ -120,7 +123,8 @@ GPIO correcto al liberar y luego marcar el locker como libre.
 6. Nextion recibe el nuevo bitmap de estados.
 7. El escaner lee el QR del ticket.
 8. El firmware extrae el numero de locker y llama `freeLocker()`.
-9. `freeLocker()` guarda estado libre y actualiza Nextion.
+9. El actuador recibe un pulso de 2 segundos.
+10. `freeLocker()` guarda estado libre y actualiza Nextion.
 
 Actualmente el QR se parsea por formato, pero el token no se valida contra un
 token persistido por locker. La validacion de token de un solo uso queda como
@@ -255,7 +259,5 @@ puede mantener DTR/RTS en reset; para leer se usa el script local
 
 - Conectar la HMI con los comandos `LANG:ES` y `LANG:EN`.
 - Confirmar ticket completo en ambos idiomas.
-- Implementar pulso de cada actuador mediante su etapa de potencia.
-- Definir polaridad y tiempo de pulso de los actuadores.
 - Validar token persistido por locker antes de liberar en produccion.
 - Verificar sincronizacion visual de `lk1..lk5` tras ocupacion y liberacion.
