@@ -192,3 +192,70 @@ Pendiente de definir. La alternativa de producción es que el backend verifique
 el token, porque los tokens de un solo uso se pueden reutilizar si alguien
 reimprime el ticket. Si es local, basta guardar el token emitido en `Preferences`
 y comparar al escanear.
+## Actualización de hardware: scanner e impresora USB
+
+### Scanner X7-1000A
+
+Configurado de USB-HID a USB-COM. Windows lo reconoce como COM8 y a 9600 8N1 entrega correctamente `L=5&I=3&T=981897898D90E92C`. El scanner sigue siendo USB y necesita USB Host; la prueba futura debe usar USB CDC/COM, no HID.
+
+### Impresora Kinwodon POS-8360L
+
+Interfaces USB + Bluetooth. Por USB Windows la identifica como `STMicroelectronics POS80 printer USB`, VID `0416`, PID `5011`. Es una impresora POS/ESC-POS USB, normalmente USB Printer unidireccional. Se conservarán los bytes ESC/POS y se cambiará solamente el transporte Bluetooth por USB.
+
+### Plataforma ESP32-S3 prevista
+
+Se migrará a ESP32-S3 N16R8/DevKitC-1 de 44 pines con dos USB-C: COM para USB-UART/programación y USB para USB OTG nativo. El S3 no tiene Bluetooth Classic, por lo que `BluetoothSerial` no se usará; scanner e impresora irán por USB.
+
+### Hub Atolla y puente USB-OTG
+
+Topología prevista:
+
+```text
+ESP32-S3 USB OTG -> adaptador USB-C OTG/A -> upstream hub Atolla
+                                             ├── scanner X7-1000A
+                                             └── impresora POS-8360L
+```
+
+El hub usará su adaptador externo. La placa tiene dos pads `USB-OTG` inferiores; unirlos con soldadura, alimentar la placa por COM y verificar aproximadamente 5 V en VBUS del puerto USB. No conectar fuentes independientes a ambos puertos con el puente cerrado. El puente solo distribuye VBUS y no implementa USB Host.
+
+GPIO19 y GPIO20 son USB D- y D+; el botón que usaba GPIO19 deberá moverse a otro GPIO cuando USB OTG esté activo.
+
+### Orden de implementación pendiente
+
+1. Sketch independiente ESP32-S3: detectar scanner USB-COM y mostrar el payload.
+2. Probar scanner mediante el hub Atolla.
+3. Detectar impresora VID 0416/PID 5011 y enviar prueba ESC/POS.
+4. Probar scanner e impresora simultáneamente mediante el hub.
+5. Integrar ambos drivers al firmware master.
+6. Implementar validación del token y liberación del locker.
+
+### Actuadores de liberación
+
+Cada locker tendrá una salida independiente hacia su propia etapa de potencia.
+El ESP32-S3 no alimentará directamente los actuadores; únicamente entregará la
+señal lógica de control a cada etapa. La etapa deberá incluir la protección
+correspondiente al tipo de actuador, por ejemplo diodo flyback para solenoides.
+
+Asignación GPIO provisional, pendiente de confirmar con el pinout físico de la placa:
+
+| Locker | GPIO de control |
+|---|---:|
+| 1 | GPIO1 |
+| 2 | GPIO2 |
+| 3 | GPIO4 |
+| 4 | GPIO5 |
+| 5 | GPIO6 |
+
+GPIO19 y GPIO20 quedan reservados para USB D- y D+. El botón que actualmente usa
+GPIO19 deberá reasignarse antes de activar USB OTG.
+
+Secuencia prevista al retirar un locker:
+
+```text
+validar QR → seleccionar salida 1..5 → activar etapa de potencia
+→ mantener el pulso configurado → desactivar salida
+→ marcar locker libre → guardar estado → actualizar Nextion
+```
+
+El tiempo de pulso y la polaridad activa (`HIGH`/`LOW`) todavía deben confirmarse
+con el actuador y su etapa de potencia reales.

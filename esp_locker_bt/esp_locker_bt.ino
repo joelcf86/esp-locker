@@ -129,9 +129,17 @@ String buildQrPayload(){
        + "&T=" + token;
 }
 
-void beep(uint16_t ms){
+void beep(){
+  // Buzzer activo: S al GPIO32, - a GND y + a 3V3.
   digitalWrite(BUZZER_PIN, HIGH);
-  delay(ms);
+  delay(180);
+
+  digitalWrite(BUZZER_PIN, LOW);
+  delay(60);
+
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(250);
+
   digitalWrite(BUZZER_PIN, LOW);
 }
 
@@ -306,15 +314,41 @@ void freeAllLockers(){
     }
   }
 
-  if (changed){
-    Serial.println("Todos los lockers fueron liberados");
-    sendToNextion("LOCKER_STATE=0");
-  }
+  // Sincronizar siempre la Nextion, aunque el ESP32 ya tuviera
+  // todos los lockers libres. La pantalla puede conservar estados
+  // bloqueados en su propia EEPROM.
+  sendToNextion("lk1=0");
+  sendToNextion("wepo lk1,0");
+  sendToNextion("lk2=0");
+  sendToNextion("wepo lk2,4");
+  sendToNextion("lk3=0");
+  sendToNextion("wepo lk3,8");
+  sendToNextion("lk4=0");
+  sendToNextion("wepo lk4,12");
+  sendToNextion("lk5=0");
+  sendToNextion("wepo lk5,16");
+
+  // Reiniciar la selección y recargar la página para que su evento
+  // Initialize pinte todos los lockers como libres.
+  sendToNextion("va0.val=0");
+  sendToNextion("va2.val=0");
+  sendToNextion("tm0.en=0");
+  sendToNextion("page page1");
+
+  Serial.println(changed ?
+                 "Todos los lockers fueron liberados" :
+                 "Nextion sincronizada: lockers libres");
+  sendToNextion("LOCKER_STATE=0");
 }
 
 void handleNextionCommand(const char *cmd){
   Serial.printf("[NEXTION] %s\n", cmd);
-  beep(30);
+
+  // Desde cualquier boton Nextion: prints "BEEP",4 + terminador.
+  if (strcmp(cmd, "BEEP") == 0){
+    beep();
+    return;
+  }
 
   if (strcmp(cmd, "ready") == 0){
     char stateMsg[20];
