@@ -428,6 +428,14 @@ void freeLocker(uint8_t locker){
 
   Serial.printf("Locker %d liberado\n", locker);
 
+  char nextionLocker[16];
+  snprintf(nextionLocker, sizeof(nextionLocker), "lk%d=0", locker);
+  sendToNextion(nextionLocker);
+
+  char nextionMemory[20];
+  snprintf(nextionMemory, sizeof(nextionMemory), "wepo lk%d,%d", locker, (locker - 1) * 4);
+  sendToNextion(nextionMemory);
+
   char stateMsg[20];
   snprintf(stateMsg, sizeof(stateMsg), "LOCKER_STATE=%d", stateMask());
   sendToNextion(stateMsg);
