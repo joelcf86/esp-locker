@@ -222,12 +222,28 @@ GPIO19 y GPIO20 son USB D- y D+; el botón que usaba GPIO19 deberá moverse a ot
 
 ### Orden de implementación pendiente
 
-1. Sketch independiente ESP32-S3: detectar scanner USB-COM y mostrar el payload.
-2. Probar scanner mediante el hub Atolla.
-3. Detectar impresora VID 0416/PID 5011 y enviar prueba ESC/POS.
-4. Probar scanner e impresora simultáneamente mediante el hub.
-5. Integrar ambos drivers al firmware master.
-6. Implementar validación del token y liberación del locker.
+Las pruebas de comunicación se realizarán de forma individual antes de integrar
+los dispositivos. No se debe comenzar directamente con el firmware master.
+
+1. **Prueba individual del scanner:** ESP32-S3 USB OTG → scanner X7-1000A.
+   Detectar el dispositivo USB CDC y mostrar el payload recibido.
+2. **Prueba individual de la impresora:** ESP32-S3 USB OTG → impresora
+   POS-8360L. Detectar VID `0416`/PID `5011` y enviar una prueba ESC/POS.
+3. **Prueba individual del scanner mediante hub:** ESP32-S3 USB OTG → hub
+   Atolla con alimentación externa → scanner.
+4. **Prueba individual de la impresora mediante hub:** ESP32-S3 USB OTG → hub
+   Atolla con alimentación externa → impresora.
+5. **Prueba conjunta:** ESP32-S3 USB OTG → hub Atolla con scanner e impresora
+   conectados simultáneamente. Verificar enumeración, lectura e impresión sin
+   interferencias.
+6. **Integración final:** incorporar scanner USB CDC, impresora USB Printer
+   Class, Nextion, buzzer, botones, `Preferences`, validación QR y los cinco
+   actuadores al firmware master.
+7. **Pruebas del sistema completo:** validar ocupación, impresión, escaneo,
+   activación del actuador correcto, liberación y sincronización con Nextion.
+
+Cada etapa debe aprobarse antes de pasar a la siguiente. Si falla una prueba
+individual, no se debe continuar con la integración del hub o del firmware master.
 
 ### Actuadores de liberación
 
