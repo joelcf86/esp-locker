@@ -259,3 +259,60 @@ validar QR → seleccionar salida 1..5 → activar etapa de potencia
 
 El tiempo de pulso y la polaridad activa (`HIGH`/`LOW`) todavía deben confirmarse
 con el actuador y su etapa de potencia reales.
+
+## Estado actual de la HMI Nextion
+
+Proyecto revisado:
+
+```text
+C:\Users\Joel Calderon\Documents\Lockers\BagPackPicker\Locker_BagPack.HMI
+```
+
+La lógica comprobada hasta esta etapa es la siguiente:
+
+- `lk1` a `lk5` representan el estado visual de los cinco lockers.
+- `sel` y `va0` almacenan la selección actual.
+- Al seleccionar un locker se muestra el botón de confirmación.
+- Al confirmar, el locker seleccionado cambia a la imagen roja (`pic=11`) y
+  se desactiva su toque mediante `tsw pX,0`.
+- El temporizador `tm0` controla la animación de generación del QR.
+- En el ciclo 7 se transmite el locker seleccionado al ESP32.
+- En el ciclo 10 se detiene el temporizador, se reactiva el toque y se vuelve a
+  `page1`.
+- La HMI envía `BEEP` terminado con `0A 0D` para activar el buzzer del ESP32.
+
+### Modo actual de presentación
+
+La inicialización contiene intencionalmente:
+
+```nextion
+lk1=0
+lk2=0
+lk3=0
+lk4=0
+lk5=0
+```
+
+Esto es correcto para la demostración actual, porque permite reiniciar la pantalla
+con todos los lockers libres mientras todavía no existe scanner para liberarlos.
+Por ese motivo, actualmente no se usan `repo` ni `wepo`.
+
+### Pendientes para producción
+
+Cuando se integre el scanner USB-COM y la liberación física:
+
+1. Restaurar `repo lkX,<dirección>` en la inicialización.
+2. Añadir `wepo lkX,<dirección>` al confirmar la ocupación.
+3. Recibir del ESP32 la liberación después de validar el QR.
+4. Cambiar el locker liberado a verde y reactivar su toque.
+5. Sincronizar los cinco estados después de reiniciar o reconectar la HMI.
+
+La HMI actualmente transmite el comando de selección con dos puntos:
+
+```text
+LOCKER:<n>
+```
+
+El firmware clásico actual utiliza ese formato. Durante la migración al ESP32-S3
+debe conservarse o normalizarse explícitamente a `LOCKER=<n>`; ambos lados deben
+usar exactamente el mismo protocolo.
