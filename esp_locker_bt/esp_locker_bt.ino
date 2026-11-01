@@ -52,11 +52,12 @@ extern "C" void USBHostBoardInit(void);
 #define NEXTION_TX 17
 #define BUZZER_PIN 14
 #define RELEASE_ALL_BUTTON 47
+#define SCAN_TEST_BUTTON 13
 
 #define MAX_OPEN_DEVICES 8
 #define TRANSFER_TIMEOUT 5000
 #define SCAN_DEDUP_MS     2000
-#define ACTUATOR_PULSE_MS 2000
+#define ACTUATOR_PULSE_MS 1000
 
 HardwareSerial nextionSerial(2);
 
@@ -198,6 +199,13 @@ void generateToken(uint8_t locker){
   currentSession.token = ((uint64_t)high << 32 | low);
   currentSession.active = true;
 
+  char operationKey[8];
+  char tokenKey[8];
+  snprintf(operationKey, sizeof(operationKey), "op%d", locker - 1);
+  snprintf(tokenKey, sizeof(tokenKey), "tk%d", locker - 1);
+  prefs.putULong(operationKey, currentSession.operationId);
+  prefs.putULong64(tokenKey, currentSession.token);
+
   Serial.println();
   Serial.println("==== NUEVA SESION ====");
   Serial.print("Locker: ");
@@ -224,6 +232,32 @@ void beep(){
   digitalWrite(BUZZER_PIN, HIGH);
   delay(250);
   digitalWrite(BUZZER_PIN, LOW);
+}
+
+void releaseSound(bool success){
+  const uint16_t shortBeep = 100;
+  const uint16_t gap = 70;
+
+  if (success){
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(shortBeep);
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(gap);
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(shortBeep);
+    digitalWrite(BUZZER_PIN, LOW);
+    delay(gap);
+    digitalWrite(BUZZER_PIN, HIGH);
+    delay(320);
+    digitalWrite(BUZZER_PIN, LOW);
+  } else {
+    for (uint8_t i = 0; i < 3; i++){
+      digitalWrite(BUZZER_PIN, HIGH);
+      delay(shortBeep);
+      digitalWrite(BUZZER_PIN, LOW);
+      if (i < 2) delay(gap);
+    }
+  }
 }
 
 void pulseActuator(uint8_t locker){
@@ -481,28 +515,43 @@ void freeAllLockers(){
 /* Escaneo -> liberar locker                                          */
 /* ------------------------------------------------------------------ */
 
-static bool parseLockerPayload(const char *payload, int *num){
-  const char *p = NULL;
+static int hexValue(char c){
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  return -1;
+}
 
-  if (strncmp(payload, "LOCKER:", 7) == 0){
-    p = payload + 7;
-  } else if (strncmp(payload, "L=", 2) == 0){
-    p = payload + 2;
-  } else {
+static bool parseTicketPayload(const char *payload, uint8_t *locker,
+                               uint32_t *operationId, uint64_t *token){
+  if (strncmp(payload, "L=", 2) != 0) return false;
+
+  const char *p = payload + 2;
+  char *end = NULL;
+  unsigned long lockerValue = strtoul(p, &end, 10);
+  if (end == p || lockerValue < 1 || lockerValue > LOCKER_COUNT || strncmp(end, "&I=", 3) != 0){
     return false;
   }
 
-  if (*p < '0' || *p > '9') return false;
-
-  int n = 0;
-  while (*p >= '0' && *p <= '9'){
-    n = n * 10 + (*p - '0');
-    p++;
+  p = end + 3;
+  unsigned long operationValue = strtoul(p, &end, 10);
+  if (end == p || strncmp(end, "&T=", 3) != 0){
+    return false;
   }
-  if (*p != '\0' && *p != '&') return false;
-  if (n < 1 || n > LOCKER_COUNT) return false;
 
-  *num = n;
+  p = end + 3;
+  if (strlen(p) != 16) return false;
+
+  uint64_t tokenValue = 0;
+  for (uint8_t i = 0; i < 16; i++){
+    int value = hexValue(p[i]);
+    if (value < 0) return false;
+    tokenValue = (tokenValue << 4) | (uint64_t)value;
+  }
+
+  *locker = (uint8_t)lockerValue;
+  *operationId = (uint32_t)operationValue;
+  *token = tokenValue;
   return true;
 }
 
@@ -520,26 +569,35 @@ void handleScanPayload(const char *payload){
   lastScanPayload[sizeof(lastScanPayload) - 1] = '\0';
   lastScanMs = now;
 
-  int locker = 0;
-  if (!parseLockerPayload(payload, &locker)){
-    Serial.printf("[SCAN] %s (formato no valido)\n", payload);
+  uint8_t locker = 0;
+  uint32_t operationId = 0;
+  uint64_t token = 0;
+  if (!parseTicketPayload(payload, &locker, &operationId, &token)){
+    Serial.printf("[SCAN] %s (ticket no valido)\n", payload);
+    releaseSound(false);
     return;
   }
 
   uint8_t idx = locker - 1;
+  char operationKey[8];
+  char tokenKey[8];
+  snprintf(operationKey, sizeof(operationKey), "op%d", idx);
+  snprintf(tokenKey, sizeof(tokenKey), "tk%d", idx);
+  uint32_t storedOperationId = prefs.getULong(operationKey, 0);
+  uint64_t storedToken = prefs.getULong64(tokenKey, 0);
+
   Serial.printf("[SCAN] %s -> locker %d\n", payload, locker);
 
-  if (lockerState[idx] == FREE){
-    Serial.printf("Locker %d ya estaba libre\n", locker);
-    s_scanAuthorized = false;
-    sendToNextion("SCAN_OK=OFF");
+  if (lockerState[idx] != OCCUPIED || operationId != storedOperationId || token != storedToken){
+    Serial.printf("[SCAN] ticket rechazado para locker %d (token/operacion no coinciden)\n", locker);
+    releaseSound(false);
     return;
   }
 
   s_scanAuthorized = false;
   sendToNextion("SCAN_OK=OFF");
-  beep();
   freeLocker((uint8_t)locker);
+  releaseSound(true);
 }
 
 void drainScanQueue(){
@@ -948,6 +1006,7 @@ void setup(){
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
   pinMode(RELEASE_ALL_BUTTON, INPUT_PULLUP);
+  pinMode(SCAN_TEST_BUTTON, INPUT_PULLUP);
 
   nextionSerial.begin(NEXTION_BAUD, SERIAL_8N1, NEXTION_RX, NEXTION_TX);
 
@@ -1005,7 +1064,9 @@ void loop(){
   drainScanQueue();
 
   static bool releaseButtonWasPressed = false;
+  static bool scanTestButtonWasPressed = false;
   bool releaseButtonPressed = digitalRead(RELEASE_ALL_BUTTON) == LOW;
+  bool scanTestButtonPressed = digitalRead(SCAN_TEST_BUTTON) == LOW;
 
   if (releaseButtonPressed && !releaseButtonWasPressed){
     delay(30);
@@ -1015,6 +1076,18 @@ void loop(){
   }
 
   releaseButtonWasPressed = releaseButtonPressed;
+
+  if (scanTestButtonPressed && !scanTestButtonWasPressed){
+    delay(30);
+    if (digitalRead(SCAN_TEST_BUTTON) == LOW){
+      s_scanAuthorized = true;
+      s_scanLen = 0;
+      if (s_scanQueue != NULL) xQueueReset(s_scanQueue);
+      Serial.println("Modo escaneo ACTIVO por boton de prueba");
+      sendToNextion("SCAN_OK=ON");
+    }
+  }
+  scanTestButtonWasPressed = scanTestButtonPressed;
 
   delay(1);
 }

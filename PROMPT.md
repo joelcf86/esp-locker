@@ -29,6 +29,7 @@ El ESP32-S3 no tiene Bluetooth Classic. La impresora Bluetooth y
 Nextion TX/RX       GPIO17 / GPIO18       UART2 @ 9600
 Buzzer activo       GPIO14                salida de control
 Liberar todos       GPIO47                boton a GND, INPUT_PULLUP
+Prueba escaneo      GPIO13                boton a GND, INPUT_PULLUP
 
 Actuador locker 1   GPIO1                 salida a etapa de potencia
 Actuador locker 2   GPIO2                 salida a etapa de potencia
@@ -45,8 +46,11 @@ USB OTG GND         GND comun
 Los cinco actuadores son **salidas**, no botones. Cada GPIO va solamente a la
 entrada de control de su etapa de potencia. La etapa necesita fuente externa,
 GND comun y proteccion adecuada; para bobinas se requiere diodo flyback.
-El firmware usa salida activa en HIGH y un pulso de 2 segundos al guardar y al
+El firmware usa salida activa en HIGH y un pulso de 1 segundo al guardar y al
 liberar. Si la etapa es activa en LOW, hay que invertir `pulseActuator()`.
+
+El buzzer activo indica el resultado del retiro: liberacion correcta = beep
+corto, beep corto y beep largo; error de QR/token = tres beeps cortos.
 
 Pines reservados y que no deben usarse para GPIO:
 
@@ -111,7 +115,7 @@ duplicados. Si la impresion falla, el locker queda ocupado y debe liberarse
 manualmente.
 
 Los cinco GPIO de actuadores se inicializan en LOW. `pulseActuator()` activa el
-GPIO correcto durante 2 segundos al ocupar/guardar y al liberar el locker.
+GPIO correcto durante 1 segundo al ocupar/guardar y al liberar el locker.
 
 ## Flujo Actual
 
@@ -123,12 +127,20 @@ GPIO correcto durante 2 segundos al ocupar/guardar y al liberar el locker.
 6. Nextion recibe el nuevo bitmap de estados.
 7. El escaner lee el QR del ticket.
 8. El firmware extrae el numero de locker y llama `freeLocker()`.
-9. El actuador recibe un pulso de 2 segundos.
+9. El actuador recibe un pulso de 1 segundo.
 10. `freeLocker()` guarda estado libre y actualiza Nextion.
 
-Actualmente el QR se parsea por formato, pero el token no se valida contra un
-token persistido por locker. La validacion de token de un solo uso queda como
-mejora de seguridad pendiente.
+Cada locker persiste tambien su operacion y token:
+
+```text
+op0..op4    operationId del ticket vigente
+tk0..tk4    token de 64 bits del ticket vigente
+```
+
+Al escanear se deben validar simultaneamente locker, `operationId` y token. Un
+QR de otro ticket, aunque tenga el mismo numero de locker, se rechaza y no
+activa el actuador. Los QR simples `LOCKER:<n>` no sirven para liberar porque
+no contienen las credenciales del ticket.
 
 ## Protocolo Nextion
 
@@ -172,6 +184,10 @@ SCAN:ON
 El firmware acepta un QR valido solo mientras el modo de escaneo esta activo.
 Despues de liberar un locker, cambia automaticamente a `SCAN:OFF`. La HMI puede
 cancelar manualmente con `SCAN:OFF`. Tambien se aceptan `SCAN=ON` y `SCAN=OFF`.
+
+Mientras la HMI no tenga el boton de retiro implementado, GPIO13 funciona como
+boton temporal de prueba: presionarlo contra GND activa una lectura y permite
+escanear un QR para liberar el locker correspondiente.
 
 ### ESP32 hacia Nextion
 
@@ -232,8 +248,8 @@ El parser del firmware tambien acepta:
 LOCKER:<n>
 ```
 
-Para liberar, actualmente se valida el formato y el numero `1..5`; no se
-valida aun la autenticidad del token.
+Para liberar deben coincidir `L`, `I` y `T` con los valores persistidos del
+locker ocupado.
 
 ## Pruebas USB Verificadas
 
